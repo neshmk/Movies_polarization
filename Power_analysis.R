@@ -3,7 +3,7 @@ install.packages("pwr")
 library(pwr)
 ## REGRESSION POWER ANALYSIS (3 predictors & 1 continuous outcome) ##
 # Define the parameters for the power analysis
-effect_size <- 0.150   # Medium effect size equivalent to cohen's d = 0.3
+effect_size <- 0.150   
 alpha <- 0.05 / 3    # Bonferroni correction for 3 tests
 power <- 0.80
 num_predictors <- 3
