@@ -1,0 +1,70 @@
+---
+title: "DATA INSPECTION"
+output: html_document
+date: "2025-07-21"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r }
+setwd("~/Desktop")
+data <- read.csv("df_cleaned.csv")
+model <- lm(polarization ~ release_year +  marginalized_protagonist +
+              moral_themes + experimental, data = data)
+```
+
+# Assumptions
+
+## Linearity
+# violated 
+
+```{r pressure, echo=FALSE}
+plot(model$fitted.values, model$residuals,
+     xlab = "Fitted values", ylab = "Residuals",
+     main = "Residuals vs Fitted")
+abline(h = 0, col = "red")
+```
+
+## Homoscedasticity
+# Violated
+
+```{r}
+library(lmtest)
+bptest(model)
+```
+
+## Independence of Errors
+# not violated 
+```{r}
+library(car)
+durbinWatsonTest(model)
+```
+
+## Normality of Residuals
+# not violated
+```{r}
+qqnorm(model$residuals)
+qqline(model$residuals, col = "red") # looks good
+shapiro.test(model$residuals) # too large of a sample for this test perhaps 
+```
+
+## Multicollinearity
+# not violated 
+```{r}
+library(car)
+vif(model) 
+```
+
+## Outliers
+# no severe influence of outliers detected 
+```{r}
+influencePlot(model)
+```
+
+# Descriptives
+
+```{r}
+summary(model)
+```
