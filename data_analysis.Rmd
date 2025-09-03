@@ -1,0 +1,527 @@
+---
+title: "Hypothesis Testing"
+output:
+  html_document: default
+  pdf_document: default
+date: "2025-07-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+library(tidyverse)
+
+data <- read.csv("df_cleaned.csv") %>%
+  filter(total_ratings >= 50) %>%   
+  mutate(
+    female_protagonist = factor(female_protagonist, levels = c("No", "Yes")),
+    lgbtq_protagonist = factor(lgbtq_protagonist, levels = c("No", "Yes")),
+    white_protagonist = factor(white_protagonist, levels = c("No", "Yes")),
+    moral_themes = factor(moral_themes, levels = c(FALSE, TRUE)),
+    experimental = factor(experimental, levels = c("No", "Yes"))
+  )
+
+print(nrow(data)) # 4530
+```
+
+### Adding the BC to data
+```{r}
+bins <- c(0.5, 1, 1.5, 2, 2.5, 3, 3.5, 4, 4.5)
+
+# Simple BC function
+bimodality_coefficient_from_counts <- function(counts) {
+  counts <- as.numeric(counts)
+  W  <- sum(counts)
+  mu <- sum(counts * bins) / W
+  xc <- bins - mu
+  m2 <- sum(counts * xc^2) / W
+  m3 <- sum(counts * xc^3) / W
+  m4 <- sum(counts * xc^4) / W
+  g1 <- m3 / (m2^(3/2))         # skewness
+  g2 <- (m4 / (m2^2)) - 3       # excess kurtosis
+  kp <- g2 + 3                  # Pearson kurtosis
+  (g1^2 + 1) / kp
+}
+
+# Apply to each row
+data$BC <- apply(data[, c("X0.5","X1","X1.5","X2","X2.5","X3","X3.5","X4","X4.5")],
+                 1, bimodality_coefficient_from_counts)
+```
+
+# Experimental Hypothesis 
+### Assumptions check
+```{r}
+# define the model
+library(lmtest)
+data_experimental <- data %>%
+  filter(experimental != "Unknown")
+nrow(data_experimental) # 4407
+
+# models 
+model_experimental <- lm(polarization ~ experimental, data = data_experimental)
+BC_experimental <- lm(BC ~ experimental, data = data_experimental)
+
+# Homoscedasticity
+library(lmtest)
+bptest(model_experimental) # violated
+bptest(BC_experimental)
+
+# Independence of Errors
+library(car)
+dwtest(model_experimental) # passed 
+dwtest(BC_experimental)
+
+# Normality of Residuals
+qqnorm(residuals(model_experimental))
+qqline(residuals(model_experimental), col = "red")
+shapiro.test(model_experimental$residuals) # not passed but sample is very large
+```
+## Results 
+```{r}
+library(sandwich)
+coeftest(model_experimental, vcov = vcovHC(model_experimental, type = "HC1")) # robust standard error due to heteroscedatiscity  
+confint.default(model_experimental, vcov. = robust_vcov)
+summary(model_experimental)$r.squared
+
+coeftest(BC_experimental, vcov = vcovHC(BC_experimental, type = "HC1"))
+```
+# Movie Age Hypothesis 
+```{r}
+model_year <- lm(polarization ~ release_year, data)
+bc_year <- lm(BC ~ release_year, data = data)
+
+#linearity 
+plot(model_year$fitted.values, resid(model_year))
+abline(h = 0, col = "red")
+plot(model_year$fitted.values, resid(bc_year))
+abline(h = 0, col = "red")
+
+# Homoscedasticity
+library(lmtest)
+bptest(model_year) # passed
+bptest(bc_year)
+
+# Independence of Errors
+library(car)
+dwtest(model_year) # passed 
+dwtest(bc_year)
+
+# Normality of Residuals
+qqnorm(residuals(model_year))
+qqline(residuals(model_year), col = "red")
+shapiro.test(model_year$residuals) # not passed but sample is very large
+```
+## Results
+```{r}
+coeftest(model_year, vcov = vcovHC(model_year, type = "HC1")) # robust standard error due to heteroscedatiscity  
+confint.default(model_year, vcov. = robust_vcov)
+summary(model_year)$r.squared
+
+coeftest(bc_year, vcov = vcovHC(bc_year, type = "HC1"))
+
+```
+# Moral Themes Hypothesis 
+### Assumption check 
+```{r}
+data_moral <- data %>%
+  filter(!is.na(moral_themes))
+  
+model_moral <- lm(polarization ~ moral_themes, data = data_moral)
+bc_moral <- lm(BC ~ moral_themes, data = data_moral)
+nrow(data_moral) # 4481
+
+# Homoscedasticity
+library(lmtest)
+bptest(model_moral) # violated
+bptest(bc_moral)
+
+# Independence of Errors
+library(car)
+dwtest(model_moral) # passed 
+dwtest(bc_moral)
+
+# Normality of Residuals
+qqnorm(residuals(model_moral))
+qqline(residuals(model_moral), col = "red")
+```
+## Main resulst 
+```{r}
+coeftest(model_moral, vcov = vcovHC(model_moral, type = "HC1")) 
+confint.default(model_moral, vcov. = robust_vcov)
+summary(model_moral)$r.squared
+
+coeftest(bc_moral, vcov = vcovHC(bc_moral, type = "HC1")) 
+
+```
+
+
+# Marginalized Character Hypothesis 
+### Assuumption check
+```{r}
+data_marginalized <- data %>%
+  filter(
+    !is.na(white_protagonist),
+    !is.na(lgbtq_protagonist),
+    !is.na(female_protagonist)
+    )
+nrow(data_marginalized) # 1446
+
+data_marginalized$white_protagonist <- relevel(data_marginalized$white_protagonist, ref = "No")
+
+combined_model <- lm(polarization ~ white_protagonist + lgbtq_protagonist + female_protagonist, data = data_marginalized)
+BC_combined <- lm(BC ~ white_protagonist + lgbtq_protagonist + female_protagonist, data = data_marginalized)
+
+# Homoscedasticity
+library(lmtest)
+bptest(combined_model) # passed
+bptest(BC_combined)
+
+# Independence of Errors
+library(car)
+dwtest(combined_model) # passed 
+dwtest(BC_combined)
+
+# Normality of Residuals
+qqnorm(residuals(combined_model))
+qqline(residuals(combined_model), col = "red")
+shapiro.test(combined_model$residuals)
+```
+## Main results
+```{r}
+summary(combined_model)
+confint.default(combined_model, vcov. = robust_vcov)
+summary(combined_model)$r.squared
+
+coeftest(BC_combined, vcov = vcovHC(BC_combined, type = "HC1")) 
+summary(BC_combined)$r.squared
+```
+
+
+# Descriptives
+## Marginalized characters hypothesis 
+```{r}
+library(tidyverse)
+library(psych)
+cat("Descriptive Statistics for Marginalized Characters Dataset\n")
+numeric_vars <- data_marginalized |> select(where(is.numeric))
+print(round(describe(numeric_vars), 2))
+cat("\n")
+
+cat("Categorical Frequencies for Marginalized Characters Dataset\n")
+categorical_vars <- data_marginalized |> select(where(is.factor))
+for (var in names(categorical_vars)) {
+  cat("Variable:", var, "\n")
+  print(table(categorical_vars[[var]]))
+  cat("\n")
+}
+
+```
+## Movie age hypothesis 
+```{r}
+library(psych)
+
+cat("Descriptive Statistics for Full Dataset\n")
+numeric_vars <- data |> select(where(is.numeric))
+print(round(describe(numeric_vars), 2))
+cat("\n")
+```
+## Moral themes
+```{r}
+cat("Descriptive Statistics for Moral Themes Dataset\n")
+numeric_vars <- data_moral |> select(where(is.numeric))
+print(round(describe(numeric_vars), 2))
+cat("\n")
+
+cat("Categorical Frequencies for Moral Themes Dataset\n")
+categorical_vars <- data_moral |> select(where(is.factor))
+for (var in names(categorical_vars)) {
+  cat("Variable:", var, "\n")
+  print(table(categorical_vars[[var]]))
+  cat("\n")
+}
+```
+
+## Experimental movies
+```{r}
+cat("Descriptive Statistics for Experimental Dataset\n")
+numeric_vars <- data_experimental |> select(where(is.numeric))
+print(round(describe(numeric_vars), 2))
+cat("\n")
+
+cat("Categorical Frequencies for Experimental Dataset\n")
+categorical_vars <- data_experimental |> select(where(is.factor))
+for (var in names(categorical_vars)) {
+  cat("Variable:", var, "\n")
+  print(table(categorical_vars[[var]]))
+  cat("\n")
+}
+```
+
+```{r}
+library(tidyverse)
+library(patchwork)
+
+moral <- tibble(
+  predictor = "Moral theme",
+  outcome   = c("Entropy","BC"),
+  b         = c(-0.029, -0.006),
+  p         = c(0.0001, 0.046)
+)
+
+style <- tibble(
+  predictor = "Cinematic style",
+  outcome   = c("Entropy","BC"),
+  b         = c(0.013, 0.035),
+  p         = c(0.15,  0.0009)
+)
+
+age <- tibble(
+  predictor = "Movie age",
+  outcome   = c("Entropy","BC"),
+  b         = c(0.0017, 0.0010),
+  p         = c(0.0001, 0.0001)
+)
+
+WHITE_BC_B <- -0.017
+marginalized <- tibble(
+  predictor = rep(c("LGBTQ+","Female","White"), each = 2),
+  outcome   = rep(c("Entropy","BC"), times = 3),
+  b         = c(0.049, 0.025,   0.038, -0.0004,   -0.013, -0.01708),
+  p         = c(0.003, 0.0009,  0.0009, 0.929,     0.188, 0.0009)
+)
+
+# Colors
+marg_levels <- c("LGBTQ+","Female","White")
+cols <- c(
+  "LGBTQ+" = "#2F80ED",
+  "Female" = "#9B51E0",
+  "White"  = "#EB5757",
+  "Moral theme"   = "grey40",
+  "Cinematic style" = "grey40",
+  "Movie age"     = "grey40"
+)
+
+hypo_plot <- function(data, title, yzero = 0) {
+  data <- data %>%
+    mutate(
+      outcome = factor(outcome, levels = c("Entropy","BC")),
+      sig = factor(ifelse(p < 0.05, "p < .05", "n.s."),
+                   levels = c("n.s.","p < .05"))
+    )
+
+  ggplot(data, aes(outcome, b, group = predictor)) +
+    geom_hline(yintercept = yzero, linetype = "dashed") +
+    geom_line(aes(color = predictor), linewidth = 0.7) +
+    geom_point(aes(color = predictor, shape = sig), size = 3) +
+    scale_color_manual(values = cols, breaks = marg_levels, drop = FALSE) +
+    scale_shape_manual(values = c("n.s." = 16, "p < .05" = 17), drop = FALSE) +
+    labs(title = title, x = NULL, y = expression(Coefficient~(italic(b)))) +
+    theme_classic(base_size = 12) +
+    theme(
+      plot.title = element_text(face = "plain", hjust = .5, size = 12), # not bold
+      panel.grid = element_blank(),
+      axis.line = element_line(linewidth = 0.8, color = "black"),
+      axis.ticks = element_line(linewidth = 0.8, color = "black"),
+      legend.position = "none"
+    )
+}
+
+p_moral <- hypo_plot(moral, "Moral theme")
+p_style <- hypo_plot(style, "Cinematic style")
+p_age   <- hypo_plot(age,   "Movie age")
+
+p_marg <- hypo_plot(marginalized, "Marginalized protagonist") +
+  scale_color_manual(
+    values = cols, breaks = marg_levels, name = NULL, drop = FALSE
+  ) +
+  guides(
+    shape = "none",
+    color = guide_legend(
+      title = NULL,
+      ncol = 1,
+      override.aes = list(linetype = 1, shape = 16, size = 2.5)
+    )
+  ) +
+  theme(
+    legend.position = c(0.78, 0.85),
+    legend.justification = c(0, 0.5),
+    legend.background = element_rect(fill = "white", color = NA),
+    legend.text = element_text(size = 8.5)
+  )
+
+legend_sig <- cowplot::get_legend(
+  ggplot(tibble(x=1, y=1, sig=c("n.s.","p < .05")), 
+         aes(x, y, shape = sig)) +
+    geom_point(size = 2.5) +
+    scale_shape_manual(
+      name = "Significance",
+      values = c("n.s." = 16, "p < .05" = 17),
+      labels = c("n.s.", expression(italic(p) < .05))
+    ) +
+    theme_void(base_size = 12) +
+    theme(
+      legend.position = "bottom",
+      legend.direction = "horizontal",
+      legend.title = element_text(face = "plain", size = 12),
+      legend.text  = element_text(size = 12)
+    )
+)
+
+# Combine plots
+final_plot <- (p_moral | p_marg) / (p_style | p_age) +
+  patchwork::plot_annotation() &
+  theme(plot.margin = margin(10, 10, 20, 10))
+
+final_with_legend <- patchwork::wrap_plots(
+  final_plot,
+  legend_sig,
+  ncol = 1,
+  heights = c(12, 1)
+)
+
+final_with_legend
+
+# Save
+ggsave(
+  "panel_plot_APA.png",
+  final_with_legend,
+  width = 10,
+  height = 7,
+  dpi = 300
+)
+```
+```{r}
+
+library(ggplot2)
+library(patchwork)
+library(dplyr)
+
+theme_apa7 <- theme_classic(base_size = 12) +
+  theme(
+    legend.position = "none",
+    panel.grid = element_blank(),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black")
+  )
+
+bar_count_apa <- function(df, xvar, xlab) {
+  ggplot(df %>% 
+           mutate(
+             !!sym(xvar) := factor(
+               case_when(
+                 .data[[xvar]] == "Yes" ~ "Yes",
+                 .data[[xvar]] == "No" ~ "No",
+                 TRUE ~ "Missing"
+               ),
+               levels = c("Yes", "No", "Missing") 
+             )
+           ),
+         aes_string(x = xvar)) +
+    geom_bar(fill = "grey70", color = "black", linewidth = 0.3, width = 0.7) +
+    geom_text(stat = "count", aes(label = ..count..), 
+              vjust = -0.3, size = 3.5) +
+    labs(x = xlab, y = "Count") +
+    scale_y_continuous(expand = expansion(mult = c(0, 0.12))) +
+    theme_apa7
+}
+
+# ---------- Build the five categorical plots ----------
+p1 <- bar_count_apa(data, "female_protagonist", "Female protagonist")
+p2 <- bar_count_apa(data, "lgbtq_protagonist",  "LGBTQ+ protagonist")
+p3 <- bar_count_apa(data, "white_protagonist",  "White protagonist")
+p4 <- bar_count_apa(data, "experimental",       "Experimental")
+p5 <- bar_count_apa(data, "moral_themes",       "Moral themes")
+
+# ---------- Combine into one APA-style panel ----------
+panel_counts <- (p1 | p2 | p3) / (p4 | p5 | plot_spacer())
+
+# Show
+panel_counts
+
+# ---------- Save ----------
+ggsave("panel_counts_APA.png", plot = panel_counts, width = 12, height = 8, dpi = 300)
+
+
+```
+
+```{r}
+library(tidyverse)
+library(patchwork)
+
+data_long <- data %>%
+  select(BC, polarization, female_protagonist, lgbtq_protagonist, 
+         white_protagonist, experimental, moral_themes) %>%
+  pivot_longer(cols = c(female_protagonist, lgbtq_protagonist, 
+                        white_protagonist, experimental, moral_themes),
+               names_to = "Predictor", values_to = "Level") %>%
+  filter(!is.na(Level)) %>%
+  mutate(
+    Predictor = factor(
+      Predictor,
+      levels = c("female_protagonist",
+                 "lgbtq_protagonist",
+                 "white_protagonist",
+                 "moral_themes",
+                 "experimental")
+    )
+  )
+
+# Labels
+predictor_labels <- c(
+  female_protagonist = "Female protagonist",
+  lgbtq_protagonist  = "LGBTQ+ protagonist",
+  white_protagonist  = "White protagonist",
+  moral_themes       = "Moral themes",
+  experimental       = "Experimental"
+)
+
+# APA theme
+theme_apa7 <- theme_classic(base_size = 12) +
+  theme(
+    legend.position = "bottom",
+    legend.title = element_blank(),
+    panel.grid = element_blank(),
+    axis.text = element_text(color = "black"),
+    axis.title = element_text(color = "black")
+  )
+
+p_cats_bc <- ggplot(data_long, aes(Level, BC)) +
+  geom_violin(fill = "grey85", color = "black", trim = TRUE) +
+  geom_boxplot(width = 0.15, fill = "white", color = "black", outlier.size = 0.8) +
+  facet_wrap(~Predictor, scales = "free_x", labeller = labeller(Predictor = predictor_labels)) +
+  labs(x = NULL, y = "BC") +
+  theme_apa7
+
+p_cats_entropy <- ggplot(data_long, aes(Level, polarization)) +
+  geom_violin(fill = "grey85", color = "black", trim = TRUE) +
+  geom_boxplot(width = 0.15, fill = "white", color = "black", outlier.size = 0.8) +
+  facet_wrap(~Predictor, scales = "free_x", labeller = labeller(Predictor = predictor_labels)) +
+  labs(x = NULL, y = "Entropy") +
+  theme_apa7
+
+p_cats <- p_cats_bc / plot_spacer() / p_cats_entropy +
+  plot_layout(heights = c(1, 0.15, 1))
+
+data_long_year <- data %>%
+  select(release_year, BC, polarization) %>%
+  pivot_longer(cols = c(BC, polarization), 
+               names_to = "Measure", values_to = "Value") %>%
+  mutate(Measure = dplyr::recode(Measure,
+                                 "BC" = "BC",
+                                 "polarization" = "Entropy"))
+
+p_year <- ggplot(data_long_year, aes(x = release_year, y = Value, color = Measure)) +
+  geom_point(alpha = 0.25, size = 1) +
+  geom_smooth(method = "loess", se = TRUE, linewidth = 1) +
+  labs(x = "Release year", y = "Polarization measure") +
+  scale_color_manual(values = c("BC" = "black", "Entropy" = "grey40")) +
+  theme_apa7
+
+final_plot <- p_cats | p_year
+final_plot
+
+ggsave("descriptives_predictors_APA_clean.png", final_plot, width = 14, height = 8, dpi = 300)
+
+
+
+```
